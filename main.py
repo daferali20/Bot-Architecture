@@ -1,27 +1,35 @@
+# ==========================================
+# حل مشكلة event loop - يجب أن يكون في البداية
+# ==========================================
 import sys
 import asyncio
 import warnings
 import time
+import nest_asyncio
 
-# 🛑 1. إيجاد أو إنشاء حلقة الأحداث أولاً قبل أي import لـ ib_insync
+# تطبيق nest_asyncio
+nest_asyncio.apply()
+
+# إنشاء event loop
 try:
     loop = asyncio.get_event_loop()
 except RuntimeError:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-# 🛑 2. الآن استورد streamlit و ib_insync بأمان
-import streamlit as st
-from ib_insync import IB, Stock, MarketOrder, util
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import ta
-from openai import OpenAI
-
 warnings.filterwarnings('ignore')
 
-# 🛠️ تفعيل ترقيع ib_insync للبيئات المتعددة
-util.patchAsyncio()
+# ==========================================
+# استيراد المكتبات
+# ==========================================
+import streamlit as st
+from ib_insync import IB, Stock, util
+import pandas as pd
+import ta
+from openai import OpenAI
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import numpy as np
 
 # 🤖 محرك الذكاء الاصطناعي المحلي
 from ai_models import LocalAITradingEngine
@@ -69,7 +77,7 @@ def get_market_data(symbol, host, port):
         if df.empty:
             return None, "لا توجد بيانات"
         
-        # المؤشرات الفنية
+        # المؤشرات الفنية باستخدام ta
         df['RSI'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
         df['SMA_20'] = ta.trend.sma_indicator(df['close'], window=20)
         df['SMA_50'] = ta.trend.sma_indicator(df['close'], window=50)
@@ -285,6 +293,9 @@ def main():
         engine = st.session_state['ai_engine']
         if engine.is_trained:
             st.success("✅ النموذج جاهز")
+            if hasattr(engine, 'feature_importance') and engine.feature_importance is not None:
+                with st.expander("أهم الميزات"):
+                    st.dataframe(engine.feature_importance.head(5))
         else:
             st.warning("⚠️ غير مدرب")
     
@@ -301,13 +312,15 @@ def main():
                 
                 if error:
                     st.error(f"❌ {error}")
-                    st.info("تأكد من تشغيل TWS/IB Gateway مع تمكين API")
+                    st.info("💡 تأكد من تشغيل TWS/IB Gateway مع تمكين API")
                 else:
                     st.session_state['df'] = df
                     
                     with st.spinner("تدريب النموذج..."):
                         if engine.train_quick_model(df):
-                            st.success("✅ تم التدريب بنجاح!")
+                            st.success("✅ تم تدريب النموذج بنجاح!")
+                        else:
+                            st.warning("⚠️ بيانات غير كافية للتدريب")
                     
                     st.success(f"✅ {len(df)} شمعة جاهزة")
                     
@@ -322,10 +335,32 @@ def main():
             fig = plot_chart(df, symbol)
             st.plotly_chart(fig, use_container_width=True)
             
+            # إشارة التداول
+            if engine.is_trained:
+                action, confidence, _ = engine.predict_opportunity(df)
+                if action == "BUY":
+                    st.success(f"🟢 إشارة: شراء (ثقة: {confidence}%)")
+                elif action == "SELL":
+                    st.error(f"🔴 إشارة: بيع (ثقة: {confidence}%)")
+                else:
+                    st.warning(f"⏸️ إشارة: انتظار (ثقة: {confidence}%)")
+            
             # الجدول
             with st.expander("📋 البيانات"):
                 cols = ['date', 'open', 'high', 'low', 'close', 'volume', 'RSI', 'SMA_20', 'SMA_50']
-                st.dataframe(df[cols].tail(10), use_container_width=True)
+                st.dataframe(
+                    df[cols].tail(10).style.format({
+                        'close': '${:.2f}',
+                        'open': '${:.2f}',
+                        'high': '${:.2f}',
+                        'low': '${:.2f}',
+                        'volume': '{:,.0f}',
+                        'RSI': '{:.1f}',
+                        'SMA_20': '${:.2f}',
+                        'SMA_50': '${:.2f}'
+                    }),
+                    use_container_width=True
+                )
     
     # العمود الثاني - التحليل والتنفيذ
     with col2:
@@ -376,17 +411,40 @@ def main():
             if action == "BUY":
                 if st.button(f"🚀 شراء {quantity} سهم", use_container_width=True, type="primary"):
                     msg = execute_ib_order("BUY", symbol, quantity, ib_host, ib_port)
-                    st.success(msg)
+                    if "✅" in msg:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
                     
             elif action == "SELL":
                 if st.button(f"🔻 بيع {quantity} سهم", use_container_width=True, type="primary"):
                     msg = execute_ib_order("SELL", symbol, quantity, ib_host, ib_port)
-                    st.success(msg)
+                    if "✅" in msg:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
+            else:
+                st.info("⏸️ لا توجد صفقة للتنفيذ")
             
             if st.button("🗑️ مسح", use_container_width=True):
                 for key in ['result', 'action', 'confidence']:
                     st.session_state.pop(key, None)
                 st.rerun()
+    
+    # ===== معلومات =====
+    with st.expander("ℹ️ معلومات"):
+        st.markdown("""
+        ### 🤖 بوت التداول بالذكاء الاصطناعي
+        
+        **المميزات:**
+        - الاتصال بـ Interactive Brokers
+        - تحليل فني باستخدام RSI, SMA
+        - محرك ذكاء اصطناعي محلي (Random Forest)
+        - دعم OpenAI GPT-4o
+        - تنفيذ الأوامر تلقائياً
+        
+        **⚠️ تنبيه:** للاستخدام التعليمي فقط
+        """)
 
 # ==========================================
 # التشغيل
