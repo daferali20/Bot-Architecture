@@ -3,19 +3,32 @@
 # ==========================================
 import asyncio
 import nest_asyncio
+import anyio
+from anyio import to_thread
 
-# تطبيق nest_asyncio فوراً
-try:
-    nest_asyncio.apply()
-except Exception as e:
-    print(f"⚠️ nest_asyncio.apply() failed: {e}")
+# تطبيق nest_asyncio
+nest_asyncio.apply()
 
-# إنشاء event loop جديد وتثبيته
+# إنشاء event loop وتثبيته كـ loop افتراضي
 try:
     loop = asyncio.get_event_loop()
 except RuntimeError:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+
+# إصلاح AnyIO - تعيين event loop يدوياً
+def patch_anyio():
+    """إصلاح AnyIO لاستخدام event loop الصحيح"""
+    try:
+        # محاولة الحصول على backend
+        backend = anyio.get_async_backend()
+        if backend is None:
+            # تعيين backend افتراضي
+            anyio._core._eventloop._async_backend = None
+    except:
+        pass
+
+patch_anyio()
 
 # ==========================================
 # الآن استيراد المكتبات الأخرى
@@ -30,6 +43,8 @@ from plotly.subplots import make_subplots
 import numpy as np
 import warnings
 import time
+import sys
+import os
 
 warnings.filterwarnings('ignore')
 
@@ -47,7 +62,16 @@ DEFAULT_QUANTITY = 10
 DEFAULT_INTERVAL = 300  # 5 دقائق
 
 # ==========================================
-# دوال الاتصال وجلب البيانات - مُصلحة بالكامل
+# إعدادات Streamlit - يجب أن تكون في البداية
+# ==========================================
+st.set_page_config(
+    page_title="Local AI Trading Bot (IBKR)", 
+    page_icon="🤖",
+    layout="wide"
+)
+
+# ==========================================
+# دوال الاتصال وجلب البيانات
 # ==========================================
 
 def get_ib_connection(host='127.0.0.1', port=7497, client_id=1):
@@ -71,9 +95,8 @@ def get_ib_connection(host='127.0.0.1', port=7497, client_id=1):
     return ib
 
 def safe_connect(ib, host, port, client_id):
-    """اتصال آمن مع IBKR مع معالجة الأخطاء"""
+    """اتصال آمن مع IBKR"""
     try:
-        # محاولة الاتصال
         ib.connect(host, int(port), clientId=client_id)
         return True, None
     except Exception as e:
@@ -84,16 +107,11 @@ def get_market_data(symbol, host, port):
     ib = None
     try:
         ib = get_ib_connection(host, port, 99)
-        
-        # محاولة الاتصال
         success, error = safe_connect(ib, host, port, 99)
         if not success:
             return None, f"فشل الاتصال: {error}"
         
-        # تعريف العقد
         contract = Stock(symbol, 'SMART', 'USD')
-        
-        # جلب البيانات التاريخية
         bars = ib.reqHistoricalData(
             contract, 
             endDateTime='', 
@@ -103,7 +121,6 @@ def get_market_data(symbol, host, port):
             useRTH=True
         )
         
-        # تحويل إلى DataFrame
         df = util.df(bars)
         
         if df.empty:
@@ -116,7 +133,6 @@ def get_market_data(symbol, host, port):
         df['volume_ma'] = ta.trend.sma_indicator(df['volume'], window=10)
         df['date'] = df.index
         
-        # قطع الاتصال
         try:
             ib.disconnect()
         except:
@@ -137,8 +153,6 @@ def execute_ib_order(action, symbol, qty, host, port):
     ib = None
     try:
         ib = get_ib_connection(host, port, 100)
-        
-        # محاولة الاتصال
         success, error = safe_connect(ib, host, port, 100)
         if not success:
             return f"❌ فشل الاتصال: {error}"
@@ -168,7 +182,7 @@ def execute_ib_order(action, symbol, qty, host, port):
         return f"❌ خطأ أثناء تنفيذ الأمر: {e}"
 
 # ==========================================
-# دوال التحليل (بدون تغيير)
+# دوال التحليل
 # ==========================================
 
 def analyze_with_local_ai(df):
@@ -486,17 +500,9 @@ def run_auto_trading(symbol, host, port, quantity, interval=300):
 # ==========================================
 
 def main():
-    """
-    الدالة الرئيسية للتطبيق
-    """
+    """الدالة الرئيسية للتطبيق"""
     
-    # تهيئة الصفحة والإعدادات
-    st.set_page_config(
-        page_title="Local AI Trading Bot (IBKR)", 
-        page_icon="🤖",
-        layout="wide"
-    )
-    
+    # عرض العنوان
     st.title("🤖 بوت التداول بمحرك الذكاء الاصطناعي المحلي (IBKR)")
     
     # تهيئة المحرك في session_state
