@@ -1,27 +1,17 @@
-# ==========================================
-# حل مشكلة event loop - أبسط حل
-# ==========================================
+import sys
 import asyncio
-import nest_asyncio
-
-# تطبيق nest_asyncio
-nest_asyncio.apply()
-
-# ==========================================
-# استيراد المكتبات
-# ==========================================
-import streamlit as st
-from ib_insync import *
-import pandas as pd
-import ta
-from openai import OpenAI
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import numpy as np
 import warnings
 import time
+import streamlit as st
 
 warnings.filterwarnings('ignore')
+
+# 🛠️ حل مشكلة anyio.NoEventLoopError لبيئة Streamlit
+try:
+    loop = asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
 # 🤖 محرك الذكاء الاصطناعي المحلي
 from ai_models import LocalAITradingEngine
