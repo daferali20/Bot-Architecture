@@ -44,10 +44,11 @@ def get_market_data(symbol, host, port):
         df = util.df(bars)
         
         # حساب المؤشرات الفنية
-        df['RSI'] = ta.rsi(df['close'], length=14)
-        df['SMA_20'] = ta.sma(df['close'], length=20)
-        df['SMA_50'] = ta.sma(df['close'], length=50)
-        df['volume_ma'] = ta.sma(df['volume'], length=10)
+        # حساب المؤشرات باستخدام ta
+        df['RSI'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
+        df['SMA_20'] = ta.trend.sma_indicator(df['close'], window=20)
+        df['SMA_50'] = ta.trend.sma_indicator(df['close'], window=50)
+        df['volume_ma'] = ta.trend.sma_indicator(df['volume'], window=10)
         df['date'] = df.index
         
         ib.disconnect()
