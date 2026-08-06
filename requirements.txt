@@ -6,6 +6,6 @@ openai
 scikit-learn
 python-dotenv
 ta
-ib-insync
+ib-async
 nest-asyncio
 
