@@ -4,3 +4,4 @@ pandas
 pandas_ta
 openai
 python-dotenv
+plotly
