@@ -1,20 +1,11 @@
 import sys
 import asyncio
 import warnings
-
-# 🛑 1. تهيئة الـ Event Loop الصحيح لـ Streamlit و ib_insync
-try:
-    loop = asyncio.get_running_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-# 🛑 2. استيراد ib_insync وتطبيق الترقيع بأمان
-import ib_insync
-ib_insync.util.patchAsyncio()
-
-from ib_insync import IB, Stock, MarketOrder
+import time
 import streamlit as st
+
+# الاستيرادات المفقودة
+from ib_insync import IB, Stock, MarketOrder, util
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import ta
@@ -22,7 +13,7 @@ from openai import OpenAI
 
 warnings.filterwarnings('ignore')
 
-# 🛠️ تفعيل ترقيع ib_insync للبيئات المتعددة
+# 🛠️ حل مشكلة asyncio / anyio لـ IBKR في بيئة Streamlit
 util.patchAsyncio()
 
 def ensure_event_loop():
