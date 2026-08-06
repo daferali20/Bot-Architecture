@@ -1,6 +1,6 @@
 import streamlit as st
 from ib_insync import *
-import pandas as pd
+import ta
 import pandas_ta as ta
 from openai import OpenAI
 import plotly.graph_objects as go
