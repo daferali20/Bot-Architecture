@@ -1,12 +1,11 @@
-# استخدام إصدارات محددة تعمل مع Python 3.11+
+cat > requirements.txt << EOF
 streamlit==1.31.0
-ib-insync==0.9.86
 pandas==2.2.2
+numpy==1.26.4
 plotly==5.22.0
 openai==1.30.0
-numpy==1.26.4
 scikit-learn==1.5.0
 python-dotenv==1.0.1
 ta==0.10.2
-setuptools==69.5.1
-wheel==0.43.0
+ib-insync==0.9.86
+EOF
