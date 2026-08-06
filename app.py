@@ -4,10 +4,14 @@ import pandas as pd
 import pandas_ta as ta
 from openai import OpenAI
 import os
+# 🤖 استدعاء محرك الذكاء الاصطناعي المحلي
+from ai_models import LocalAITradingEngine
 
-# --- 1. إعداد واجهة Streamlit ---
-st.set_page_config(page_title="AI Trading Bot (IBKR Demo)", layout="wide")
-st.title("🤖 بوت التداول بالذكاء الاصطناعي (Interactive Brokers)")
+# تهيئة المحرك
+ai_engine = LocalAITradingEngine()
+
+st.set_page_config(page_title="Local AI Trading Bot (IBKR)", layout="wide")
+st.title("🤖 بوت التداول بمحرك الذكاء الاصطناعي المحلي (IBKR)")
 
 # الشريط الجانبي للإعدادات
 st.sidebar.header("⚙️ إعدادات الاتصال والحساب")
