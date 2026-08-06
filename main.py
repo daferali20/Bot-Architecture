@@ -4,14 +4,31 @@ import warnings
 import time
 import streamlit as st
 
+# الاستيرادات المفقودة
+from ib_insync import IB, Stock, MarketOrder, util
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import ta
+from openai import OpenAI
+
 warnings.filterwarnings('ignore')
 
-# 🛠️ حل مشكلة anyio.NoEventLoopError لبيئة Streamlit
-try:
-    loop = asyncio.get_event_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+# 🛠️ حل مشكلة asyncio / anyio لـ IBKR في بيئة Streamlit
+util.patchAsyncio()
+
+def ensure_event_loop():
+    """ضمان تفعيل حلقة أحداث نشطة في الخيط الحالي"""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    return loop
+
+ensure_event_loop()
 
 # 🤖 محرك الذكاء الاصطناعي المحلي
 from ai_models import LocalAITradingEngine
@@ -40,6 +57,7 @@ DEFAULT_INTERVAL = 300
 
 def get_market_data(symbol, host, port):
     """جلب البيانات من IBKR"""
+    ensure_event_loop()
     ib = IB()
     try:
         ib.connect(host, int(port), clientId=99)
@@ -56,8 +74,8 @@ def get_market_data(symbol, host, port):
         
         df = util.df(bars)
         
-        if df.empty:
-            return None, "لا توجد بيانات"
+        if df is None or df.empty:
+            return None, "لا توجد بيانات متاحة"
         
         # المؤشرات الفنية
         df['RSI'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
@@ -78,6 +96,7 @@ def get_market_data(symbol, host, port):
 
 def execute_ib_order(action, symbol, qty, host, port):
     """تنفيذ أمر تداول"""
+    ensure_event_loop()
     ib = IB()
     try:
         ib.connect(host, int(port), clientId=100)
@@ -167,7 +186,6 @@ def analyze_hybrid(df, api_key, symbol_name):
             df.tail(10).to_string(), api_key, symbol_name
         )
         
-        # دمج النتائج
         if local_action == openai_action and local_action != "HOLD":
             final_action = local_action
             hybrid_result = f"✅ توافق: {local_action}\n{local_result}\n\n{openai_result}"
@@ -194,7 +212,6 @@ def plot_chart(df, symbol_name):
         subplot_titles=(f'📈 {symbol_name}', 'RSI', 'Volume')
     )
     
-    # الشموع
     fig.add_trace(
         go.Candlestick(
             x=df['date'],
@@ -207,7 +224,6 @@ def plot_chart(df, symbol_name):
         row=1, col=1
     )
     
-    # المتوسطات
     fig.add_trace(
         go.Scatter(x=df['date'], y=df['SMA_20'], mode='lines', name='SMA 20', line=dict(color='orange')),
         row=1, col=1
@@ -217,7 +233,6 @@ def plot_chart(df, symbol_name):
         row=1, col=1
     )
     
-    # RSI
     fig.add_trace(
         go.Scatter(x=df['date'], y=df['RSI'], mode='lines', name='RSI', line=dict(color='purple')),
         row=2, col=1
@@ -225,7 +240,6 @@ def plot_chart(df, symbol_name):
     fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
     fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
     
-    # Volume
     colors = ['green' if df.iloc[i]['close'] >= df.iloc[i]['open'] else 'red' for i in range(len(df))]
     fig.add_trace(
         go.Bar(x=df['date'], y=df['volume'], name='Volume', marker_color=colors, opacity=0.6),
@@ -248,14 +262,12 @@ def plot_chart(df, symbol_name):
 
 def main():
     """التطبيق الرئيسي"""
-    
+    ensure_event_loop()
     st.title("🤖 بوت التداول بالذكاء الاصطناعي (IBKR)")
     
-    # تهيئة المحرك
     if 'ai_engine' not in st.session_state:
         st.session_state['ai_engine'] = LocalAITradingEngine()
     
-    # ===== الشريط الجانبي =====
     with st.sidebar:
         st.header("⚙️ الإعدادات")
         
@@ -278,10 +290,8 @@ def main():
         else:
             st.warning("⚠️ غير مدرب")
     
-    # ===== الأعمدة الرئيسية =====
     col1, col2 = st.columns([1.5, 1])
     
-    # العمود الأول - البيانات
     with col1:
         st.subheader("📊 البيانات الفنية")
         
@@ -308,16 +318,14 @@ def main():
         if 'df' in st.session_state:
             df = st.session_state['df']
             
-            # الرسم البياني
             fig = plot_chart(df, symbol)
             st.plotly_chart(fig, use_container_width=True)
             
-            # الجدول
             with st.expander("📋 البيانات"):
                 cols = ['date', 'open', 'high', 'low', 'close', 'volume', 'RSI', 'SMA_20', 'SMA_50']
-                st.dataframe(df[cols].tail(10), use_container_width=True)
+                available_cols = [c for c in cols if c in df.columns]
+                st.dataframe(df[available_cols].tail(10), use_container_width=True)
     
-    # العمود الثاني - التحليل والتنفيذ
     with col2:
         st.subheader("🤖 التحليل والتنفيذ")
         
@@ -334,7 +342,7 @@ def main():
                         result, action, conf = analyze_with_openai(
                             df.tail(10).to_string(), api_key, symbol
                         )
-                    else:  # هجين
+                    else:
                         result, action, conf = analyze_hybrid(df, api_key, symbol)
                     
                     st.session_state['result'] = result
@@ -343,7 +351,6 @@ def main():
                     
                     st.success("✅ تم التحليل")
         
-        # عرض النتيجة
         if 'result' in st.session_state:
             st.divider()
             
@@ -359,7 +366,6 @@ def main():
             
             st.text_area("التفاصيل:", st.session_state['result'], height=150)
             
-            # أزرار التنفيذ
             st.divider()
             st.subheader("💼 التنفيذ")
             
@@ -378,9 +384,6 @@ def main():
                     st.session_state.pop(key, None)
                 st.rerun()
 
-# ==========================================
-# التشغيل
-# ==========================================
-
 if __name__ == "__main__":
+    ensure_event_loop()
     main()
