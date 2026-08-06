@@ -1,20 +1,36 @@
+# ==========================================
+# حل مشكلة event loop - يجب أن يكون في أعلى الملف
+# ==========================================
+import asyncio
+import nest_asyncio
+
+# تطبيق nest_asyncio فوراً
+try:
+    nest_asyncio.apply()
+except Exception as e:
+    print(f"⚠️ nest_asyncio.apply() failed: {e}")
+
+# إنشاء event loop جديد وتثبيته
+try:
+    loop = asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+# ==========================================
+# الآن استيراد المكتبات الأخرى
+# ==========================================
 import streamlit as st
 from ib_insync import *
 import pandas as pd
-import ta  # استخدام ta فقط
+import ta
 from openai import OpenAI
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
 import warnings
 import time
-import asyncio
-import nest_asyncio
 
-# تطبيق nest_asyncio لحل مشكلة event loop
-nest_asyncio.apply()
-
-# منع التحذيرات
 warnings.filterwarnings('ignore')
 
 # 🤖 استدعاء محرك الذكاء الاصطناعي المحلي
@@ -31,32 +47,53 @@ DEFAULT_QUANTITY = 10
 DEFAULT_INTERVAL = 300  # 5 دقائق
 
 # ==========================================
-# دوال الاتصال وجلب البيانات - مُصلحة
+# دوال الاتصال وجلب البيانات - مُصلحة بالكامل
 # ==========================================
 
 def get_ib_connection(host='127.0.0.1', port=7497, client_id=1):
     """إنشاء اتصال IBKR مع معالجة event loop"""
+    # التأكد من وجود event loop
     try:
-        # محاولة الحصول على event loop موجود
         loop = asyncio.get_event_loop()
     except RuntimeError:
-        # إذا لم يوجد، إنشاء واحد جديد
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
     
+    # إنشاء اتصال IB
     ib = IB()
-    ib.loop = loop
+    
+    # ربط الـ loop بالـ ib
+    try:
+        ib.loop = loop
+    except:
+        pass
+    
     return ib
 
+def safe_connect(ib, host, port, client_id):
+    """اتصال آمن مع IBKR مع معالجة الأخطاء"""
+    try:
+        # محاولة الاتصال
+        ib.connect(host, int(port), clientId=client_id)
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
 def get_market_data(symbol, host, port):
-    """الاتصال بـ IBKR وجلب البيانات الفنية - نسخة مُصلحة"""
+    """الاتصال بـ IBKR وجلب البيانات الفنية"""
     ib = None
     try:
-        # إنشاء اتصال جديد
         ib = get_ib_connection(host, port, 99)
-        ib.connect(host, int(port), clientId=99)
         
+        # محاولة الاتصال
+        success, error = safe_connect(ib, host, port, 99)
+        if not success:
+            return None, f"فشل الاتصال: {error}"
+        
+        # تعريف العقد
         contract = Stock(symbol, 'SMART', 'USD')
+        
+        # جلب البيانات التاريخية
         bars = ib.reqHistoricalData(
             contract, 
             endDateTime='', 
@@ -66,16 +103,25 @@ def get_market_data(symbol, host, port):
             useRTH=True
         )
         
+        # تحويل إلى DataFrame
         df = util.df(bars)
         
-        # حساب المؤشرات الفنية باستخدام ta
+        if df.empty:
+            return None, "لا توجد بيانات متاحة"
+        
+        # حساب المؤشرات الفنية
         df['RSI'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
         df['SMA_20'] = ta.trend.sma_indicator(df['close'], window=20)
         df['SMA_50'] = ta.trend.sma_indicator(df['close'], window=50)
         df['volume_ma'] = ta.trend.sma_indicator(df['volume'], window=10)
         df['date'] = df.index
         
-        ib.disconnect()
+        # قطع الاتصال
+        try:
+            ib.disconnect()
+        except:
+            pass
+        
         return df, None
         
     except Exception as e:
@@ -84,14 +130,18 @@ def get_market_data(symbol, host, port):
                 ib.disconnect()
             except:
                 pass
-        return None, str(e)
+        return None, f"خطأ: {str(e)}"
 
 def execute_ib_order(action, symbol, qty, host, port):
-    """تنفيذ أمر التداول - نسخة مُصلحة"""
+    """تنفيذ أمر التداول"""
     ib = None
     try:
         ib = get_ib_connection(host, port, 100)
-        ib.connect(host, int(port), clientId=100)
+        
+        # محاولة الاتصال
+        success, error = safe_connect(ib, host, port, 100)
+        if not success:
+            return f"❌ فشل الاتصال: {error}"
         
         contract = Stock(symbol, 'SMART', 'USD')
         order = MarketOrder(action, qty)
@@ -99,7 +149,10 @@ def execute_ib_order(action, symbol, qty, host, port):
         ib.sleep(2)
         
         status = trade.orderStatus.status
-        ib.disconnect()
+        try:
+            ib.disconnect()
+        except:
+            pass
         
         if status in ['Filled', 'Submitted']:
             return f"✅ تم إرسال أمر {action} لـ {qty} سهم في {symbol} بنجاح!"
@@ -115,7 +168,7 @@ def execute_ib_order(action, symbol, qty, host, port):
         return f"❌ خطأ أثناء تنفيذ الأمر: {e}"
 
 # ==========================================
-# دوال التحليل
+# دوال التحليل (بدون تغيير)
 # ==========================================
 
 def analyze_with_local_ai(df):
@@ -352,14 +405,18 @@ def show_trading_signals(df):
     return "⚠️ النموذج غير مدرب"
 
 def run_auto_trading(symbol, host, port, quantity, interval=300):
-    """تشغيل البوت بشكل تلقائي - نسخة مُصلحة"""
+    """تشغيل البوت بشكل تلقائي"""
     st.info(f"🤖 بدء التشغيل التلقائي لـ {symbol} كل {interval//60} دقائق...")
     log_container = st.empty()
     
     ib = None
     try:
         ib = get_ib_connection(host, port, 99)
-        ib.connect(host, int(port), clientId=99)
+        success, error = safe_connect(ib, host, port, 99)
+        if not success:
+            st.error(f"❌ فشل الاتصال: {error}")
+            return
+        
         contract = Stock(symbol, 'SMART', 'USD')
         
         while True:
@@ -374,8 +431,6 @@ def run_auto_trading(symbol, host, port, quantity, interval=300):
                 )
                 
                 df = util.df(bars)
-                
-                # حساب المؤشرات باستخدام ta (مُصحح)
                 df['RSI'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
                 df['SMA_20'] = ta.trend.sma_indicator(df['close'], window=20)
                 df['SMA_50'] = ta.trend.sma_indicator(df['close'], window=50)
@@ -433,7 +488,6 @@ def run_auto_trading(symbol, host, port, quantity, interval=300):
 def main():
     """
     الدالة الرئيسية للتطبيق
-    يتم تشغيلها عند تنفيذ الملف مباشرة
     """
     
     # تهيئة الصفحة والإعدادات
@@ -551,7 +605,6 @@ def main():
             
             with col_auto2:
                 if st.button("▶️ بدء التشغيل التلقائي", use_container_width=True, type="primary"):
-                    st.warning("⚠️ سيتم تشغيل البوت في الخلفية.")
                     run_auto_trading(symbol, ib_host, ib_port, quantity, auto_interval)
     
     # العمود الثاني: التحليل والتنفيذ
