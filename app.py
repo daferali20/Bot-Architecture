@@ -63,7 +63,82 @@ def analyze_with_ai(df_summary, api_key):
         temperature=0.2
     )
     return response.choices[0].message.content
+    #--------------------------------
+def plot_interactive_chart(df, symbol):
+    """إنشاء رسم بياني تفاعلي باستخدام Plotly للشموع والمؤشرات الفنية"""
+    
+    # إنشاء لوحة رسم مقسمة إلى صفين (الصف الأول للأسعار، الصف الثاني لـ RSI)
+    fig = make_subplots(
+        rows=2, cols=1, 
+        shared_xaxes=True, 
+        vertical_spacing=0.08,
+        subplot_titles=(f'سعر الشموع لـ {symbol} والمتوسطات المتحركة', 'مؤشر القوة النسبية (RSI)'),
+        row_heights=[0.7, 0.3]
+    )
 
+    # 1. رسم الشموع اليابانية (Candlestick)
+    fig.add_trace(
+        go.Candlestick(
+            x=df['date'],
+            open=df['open'],
+            high=df['high'],
+            low=df['low'],
+            close=df['close'],
+            name='الأسعار'
+        ),
+        row=1, col=1
+    )
+
+    # 2. إضافة المتوسط المتحرك 20
+    fig.add_trace(
+        go.Scatter(
+            x=df['date'],
+            y=df['SMA_20'],
+            mode='lines',
+            name='SMA 20',
+            line=dict(color='orange', width=1.5)
+        ),
+        row=1, col=1
+    )
+
+    # 3. إضافة المتوسط المتحرك 50
+    fig.add_trace(
+        go.Scatter(
+            x=df['date'],
+            y=df['SMA_50'],
+            mode='lines',
+            name='SMA 50',
+            line=dict(color='blue', width=1.5)
+        ),
+        row=1, col=1
+    )
+
+    # 4. رسم خط مؤشر RSI
+    fig.add_trace(
+        go.Scatter(
+            x=df['date'],
+            y=df['RSI'],
+            mode='lines',
+            name='RSI',
+            line=dict(color='purple', width=1.5)
+        ),
+        row=2, col=1
+    )
+
+    # 5. إضافة خطوط مناطق التشبع الشرائي والبيعي (70 و 30)
+    fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
+    fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
+
+    # تعديل التنسيق والعرض
+    fig.update_layout(
+        height=600,
+        xaxis_rangeslider_visible=False,  # لإخفاء شريط التكبير السفلي لتنظيف الشاشة
+        template='plotly_dark',           # الثيم الداكن (Dark Mode)
+        margin=dict(l=20, r=20, t=40, b=20)
+    )
+
+    return fig
+    #----------------------------------------
 def execute_ib_order(action, symbol, qty):
     """تنفيذ أمر التداول على الحساب التجريبي"""
     ib = IB()
