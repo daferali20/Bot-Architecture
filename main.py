@@ -3,23 +3,15 @@
 # ==========================================
 import sys
 import warnings
-import nest_asyncio
-
-# 1. تفعيل nest_asyncio للسموح بالحلقات المتداخلة دون التداخل مع سيرفر Streamlit
-nest_asyncio.apply()
-
-# 2. استيراد ib_insync والمكتبات الأخرى بعد تفعيل nest_asyncio
-import ib_insync
-from ib_insync import IB, Stock, MarketOrder, util
-
-# 3. تفعيل الترقيع الخاص بـ ib_insync
-util.patchAsyncio()
-
+import asyncio
 import streamlit as st
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import ta
 from openai import OpenAI
+
+# 1. استخدام المكتبة الحديثة ib_async وإلغاء nest_asyncio تماماً
+from ib_async import IB, Stock, MarketOrder, util
 
 warnings.filterwarnings('ignore')
 
@@ -45,17 +37,21 @@ DEFAULT_QUANTITY = 10
 DEFAULT_INTERVAL = 300
 
 # ==========================================
-# دوال IBKR
+# دوال IBKR اللا متزامنة (Async)
 # ==========================================
 
-def get_market_data(symbol, host, port):
-    """جلب البيانات من IBKR"""
+async def get_market_data(symbol, host, port):
+    """جلب البيانات من IBKR بشكل غير متزامن لتفادي تجميد الواجهة أو أخطاء السيرفر"""
     ib = IB()
     try:
-        ib.connect(host, int(port), clientId=99)
-        contract = Stock(symbol, 'SMART', 'USD')
+        # اتصال غير متزامن مع تحديد زمن المهلة (timeout)
+        await ib.connectAsync(host, int(port), clientId=99, timeout=15)
         
-        bars = ib.reqHistoricalData(
+        contract = Stock(symbol, 'SMART', 'USD')
+        await ib.qualifyContractsAsync(contract)
+        
+        # جلب البيانات التاريخية بأسلوب Async
+        bars = await ib.reqHistoricalDataAsync(
             contract,
             endDateTime='',
             durationStr='2 D',
@@ -66,10 +62,11 @@ def get_market_data(symbol, host, port):
         
         df = util.df(bars)
         
-        if df.empty:
-            return None, "لا توجد بيانات"
+        if df is None or df.empty:
+            ib.disconnect()
+            return None, "لا توجد بيانات متوفرة"
         
-        # المؤشرات الفنية باستخدام ta
+        # حساب المؤشرات الفنية باستخدام ta
         df['RSI'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
         df['SMA_20'] = ta.trend.sma_indicator(df['close'], window=20)
         df['SMA_50'] = ta.trend.sma_indicator(df['close'], window=50)
@@ -80,10 +77,8 @@ def get_market_data(symbol, host, port):
         return df, None
         
     except Exception as e:
-        try:
+        if ib.isConnected():
             ib.disconnect()
-        except:
-            pass
         return None, str(e)
 
 def execute_ib_order(action, symbol, qty, host, port):
@@ -298,15 +293,16 @@ def main():
     with col1:
         st.subheader("📊 البيانات الفنية")
         
-        if st.button("🔄 جلب البيانات", use_container_width=True):
-            with st.spinner("جاري الاتصال بـ IBKR..."):
-                df, error = get_market_data(symbol, ib_host, ib_port)
-                
-                if error:
-                    st.error(f"❌ {error}")
-                    st.info("💡 تأكد من تشغيل TWS/IB Gateway مع تمكين API")
-                else:
-                    st.session_state['df'] = df
+        if st.button("جلب بيانات السوق"):
+    with st.spinner("جاري الاتصال بالسيرفر..."):
+        # تشغيل الدالة اللا متزامنة بأمان
+        df, error = asyncio.run(get_market_data(DEFAULT_SYMBOL, DEFAULT_HOST, DEFAULT_PORT))
+        
+        if error:
+            st.error(f"حدث خطأ: {error}")
+        else:
+            st.success("تم جلب البيانات وإضافة المؤشرات بنجاح!")
+            st.dataframe(df.tail(10))
                     
                     with st.spinner("تدريب النموذج..."):
                         if engine.train_quick_model(df):
