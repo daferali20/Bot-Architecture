@@ -23,18 +23,6 @@ from openai import OpenAI
 
 warnings.filterwarnings('ignore')
 
-# ==========================================
-# استيراد المكتبات
-# ==========================================
-import streamlit as st
-from ib_insync import IB, Stock, util, MarketOrder
-import pandas as pd
-import ta
-from openai import OpenAI
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import numpy as np
-
 # 🤖 محرك الذكاء الاصطناعي المحلي
 from ai_models import LocalAITradingEngine
 
