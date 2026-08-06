@@ -2,9 +2,16 @@ import sys
 import asyncio
 import warnings
 import time
-import streamlit as st
 
-# الاستيرادات المفقودة
+# 🛑 1. إيجاد أو إنشاء حلقة الأحداث أولاً قبل أي import لـ ib_insync
+try:
+    loop = asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+# 🛑 2. الآن استورد streamlit و ib_insync بأمان
+import streamlit as st
 from ib_insync import IB, Stock, MarketOrder, util
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -13,7 +20,7 @@ from openai import OpenAI
 
 warnings.filterwarnings('ignore')
 
-# 🛠️ حل مشكلة asyncio / anyio لـ IBKR في بيئة Streamlit
+# 🛠️ تفعيل ترقيع ib_insync للبيئات المتعددة
 util.patchAsyncio()
 
 def ensure_event_loop():
