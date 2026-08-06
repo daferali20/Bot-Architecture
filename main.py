@@ -23,7 +23,7 @@ warnings.filterwarnings('ignore')
 # استيراد المكتبات
 # ==========================================
 import streamlit as st
-from ib_insync import IB, Stock, util
+from ib_insync import IB, Stock, util, MarketOrder
 import pandas as pd
 import ta
 from openai import OpenAI
