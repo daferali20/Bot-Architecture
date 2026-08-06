@@ -1,15 +1,16 @@
 # ==========================================
-# حل مشكلة event loop - يجب أن يكون في أعلى الملف
+# حل بسيط لمشكلة event loop
 # ==========================================
 import asyncio
 import nest_asyncio
-import anyio
-from anyio import to_thread
 
 # تطبيق nest_asyncio
-nest_asyncio.apply()
+try:
+    nest_asyncio.apply()
+except:
+    pass
 
-# إنشاء event loop وتثبيته كـ loop افتراضي
+# إنشاء event loop
 try:
     loop = asyncio.get_event_loop()
 except RuntimeError:
