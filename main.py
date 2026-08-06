@@ -2,20 +2,24 @@
 # حل مشكلة event loop - يجب أن يكون في البداية
 # ==========================================
 import sys
-import asyncio
 import warnings
-import time
 import nest_asyncio
 
-# تطبيق nest_asyncio
+# 1. تفعيل nest_asyncio للسموح بالحلقات المتداخلة دون التداخل مع سيرفر Streamlit
 nest_asyncio.apply()
 
-# إنشاء event loop
-try:
-    loop = asyncio.get_event_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+# 2. استيراد ib_insync والمكتبات الأخرى بعد تفعيل nest_asyncio
+import ib_insync
+from ib_insync import IB, Stock, MarketOrder, util
+
+# 3. تفعيل الترقيع الخاص بـ ib_insync
+util.patchAsyncio()
+
+import streamlit as st
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+import ta
+from openai import OpenAI
 
 warnings.filterwarnings('ignore')
 
