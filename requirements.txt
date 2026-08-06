@@ -1,6 +1,8 @@
-streamlit
-ib_insync
-pandas
-pandas_ta
-plotly
-scikit-learn
+streamlit>=1.25.0
+ib-insync>=0.9.86
+pandas>=1.5.0
+pandas-ta>=0.3.14b
+plotly>=5.14.0
+openai>=1.0.0
+numpy>=1.23.0
+scikit-learn>=1.2.0
