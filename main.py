@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import numpy as np
 import warnings
+import time
 warnings.filterwarnings('ignore')
 
 # 🤖 استدعاء محرك الذكاء الاصطناعي المحلي
@@ -372,7 +373,6 @@ def show_trading_signals(df):
         
         # إضافة علامات على الرسم
         last_price = df['close'].iloc[-1]
-        last_date = df['date'].iloc[-1]
         
         if action == 'BUY':
             return f"🟢 شراء عند {last_price:.2f}$ (ثقة: {confidence}%)"
@@ -382,6 +382,97 @@ def show_trading_signals(df):
             return f"⏸️ انتظار - السعر الحالي: {last_price:.2f}$"
     
     return "⚠️ النموذج غير مدرب"
+
+# ==========================================
+# دالة التشغيل التلقائي (للخلفية)
+# ==========================================
+
+def run_auto_trading(symbol, host, port, quantity, interval=300):
+    """
+    تشغيل البوت بشكل تلقائي في الخلفية
+    
+    Parameters:
+    - symbol: رمز السهم
+    - host: عنوان IBKR
+    - port: منفذ IBKR
+    - quantity: الكمية
+    - interval: فترة التحديث بالثواني (افتراضي 5 دقائق)
+    """
+    st.info(f"🤖 بدء التشغيل التلقائي لـ {symbol} كل {interval//60} دقائق...")
+    
+    # إنشاء عمود لعرض التحديثات
+    log_container = st.empty()
+    
+    ib = IB()
+    try:
+        ib.connect(host, int(port), clientId=99)
+        contract = Stock(symbol, 'SMART', 'USD')
+        
+        while True:
+            try:
+                # جلب البيانات
+                bars = ib.reqHistoricalData(
+                    contract, 
+                    endDateTime='', 
+                    durationStr='1 D',
+                    barSizeSetting='5 mins', 
+                    whatToShow='TRADES', 
+                    useRTH=True
+                )
+                
+                df = util.df(bars)
+                
+                # حساب المؤشرات
+                df['RSI'] = ta.rsi(df['close'], length=14)
+                df['SMA_20'] = ta.sma(df['close'], length=20)
+                df['SMA_50'] = ta.sma(df['close'], length=50)
+                
+                # التحليل
+                engine = st.session_state['ai_engine']
+                if not engine.is_trained:
+                    engine.train_quick_model(df)
+                
+                action, confidence, reason = engine.predict_opportunity(df)
+                latest_price = df['close'].iloc[-1]
+                
+                # عرض التحديث
+                log_text = f"🕐 {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                log_text += f"📊 {symbol}: ${latest_price:.2f}\n"
+                log_text += f"💡 التوصية: {action} (ثقة: {confidence}%)\n"
+                log_text += f"📝 السبب: {reason[:100]}..."
+                
+                log_container.text_area("سجل التشغيل:", log_text, height=150)
+                
+                # تنفيذ الأمر إذا كانت توصية شراء أو بيع
+                if action in ['BUY', 'SELL']:
+                    # التحقق من عدم وجود أوامر معلقة
+                    open_orders = ib.openTrades()
+                    has_pending = any(t.contract.symbol == symbol for t in open_orders)
+                    
+                    if not has_pending:
+                        order = MarketOrder(action, quantity)
+                        trade = ib.placeOrder(contract, order)
+                        ib.sleep(1)
+                        
+                        status = trade.orderStatus.status
+                        if status in ['Filled', 'Submitted']:
+                            st.success(f"✅ تم تنفيذ أمر {action} لـ {quantity} سهم في {symbol}!")
+                        else:
+                            st.warning(f"⚠️ الأمر قيد التنفيذ... الحالة: {status}")
+                    else:
+                        st.info("⏸️ يوجد أمر معلق بالفعل، انتظر حتى اكتماله")
+                
+                # الانتظار حتى الدورة التالية
+                time.sleep(interval)
+                
+            except Exception as e:
+                st.error(f"❌ خطأ في الدورة التلقائية: {e}")
+                time.sleep(60)
+                
+    except Exception as e:
+        st.error(f"❌ فشل الاتصال بـ IBKR: {e}")
+    finally:
+        ib.disconnect()
 
 # ==========================================
 # الواجهة الرئيسية
@@ -417,7 +508,7 @@ with col1:
                 
                 # عرض آخر سعر
                 last_price = df['close'].iloc[-1]
-                last_change = ((df['close'].iloc[-1] - df['close'].iloc[-2]) / df['close'].iloc[-2]) * 100
+                last_change = ((df['close'].iloc[-1] - df['close'].iloc[-2]) / df['close'].iloc[-2]) * 100 if len(df) > 1 else 0
                 st.metric(
                     label=f"آخر سعر لـ {symbol}",
                     value=f"${last_price:.2f}",
@@ -453,6 +544,18 @@ with col1:
                 }),
                 use_container_width=True
             )
+        
+        # زر التشغيل التلقائي
+        st.subheader("🤖 التشغيل التلقائي")
+        col_auto1, col_auto2 = st.columns([1, 1])
+        
+        with col_auto1:
+            auto_interval = st.number_input("الفترة (ثواني)", value=300, step=60, min_value=60)
+        
+        with col_auto2:
+            if st.button("▶️ بدء التشغيل التلقائي", use_container_width=True, type="primary"):
+                st.warning("⚠️ سيتم تشغيل البوت في الخلفية. انقر زر 'إيقاف' لإيقافه.")
+                run_auto_trading(symbol, ib_host, ib_port, quantity, auto_interval)
 
 with col2:
     st.subheader("🤖 تحليل الذكاء الاصطناعي وتنفيذ الأوامر")
@@ -593,6 +696,7 @@ with st.expander("ℹ️ معلومات عن البوت"):
        - **OpenAI**: تحليل متقدم باستخدام GPT-4o (يتطلب مفتاح API)
        - **هجين**: يجمع بين الاثنين للحصول على أفضل النتائج
     4. **التنفيذ**: ينفذ الأوامر مباشرة على حساب IBKR التجريبي
+    5. **التشغيل التلقائي**: يمكن تشغيل البوت بشكل تلقائي لمراقبة السوق باستمرار
     
     ### ⚠️ تنبيهات مهمة
     - هذا البوت للأغراض التعليمية فقط
@@ -606,7 +710,9 @@ with st.expander("ℹ️ معلومات عن البوت"):
     - المكتبات: streamlit, ib-insync, pandas, pandas_ta, openai, plotly
     """)
 
-# عرض إحصائيات الجلسة
+# ==========================================
+# إحصائيات الجلسة في الشريط الجانبي
+# ==========================================
 st.sidebar.markdown("---")
 st.sidebar.subheader("📊 إحصائيات الجلسة")
 
@@ -636,38 +742,3 @@ if st.sidebar.button("🔄 إعادة تعيين النموذج المحلي"):
     st.session_state['ai_engine'] = LocalAITradingEngine()
     st.sidebar.success("✅ تم إعادة تعيين النموذج")
     st.rerun()
-def run_bot():
-    """حلقة التشغيل المستمرة لتفحص السوق"""
-    print(f"بدء مراقبة السهم {SYMBOL}...")
-    
-    while True:
-        try:
-            df = get_historical_data(contract)
-            signal = check_signal(df)
-            
-            latest_price = df['close'].iloc[-1]
-            latest_rsi = round(df['RSI'].iloc[-1], 2)
-            
-            print(f"السعر الحالي: {latest_price} | RSI: {latest_rsi}")
-            
-            if signal == 'BUY':
-                # التأكد من عدم وجود أوامر معلقة بنفس السهم
-                open_orders = ib.openTrades()
-                has_pending_order = any(t.contract.symbol == SYMBOL for t in open_orders)
-                
-                if not has_pending_order:
-                    order = MarketOrder('BUY', FIXED_QUANTITY)
-                    trade = ib.placeOrder(contract, order)
-                    print(f"🚀 تم اكتشاف فرصة! تم إرسال أمر شراء {FIXED_QUANTITY} سهم في {SYMBOL}")
-                else:
-                    print("توجد صفقة أو أمر معلق بالفعل لنفس السهم.")
-            
-            # الانتظار 5 دقائق قبل الفحص التالي
-            time.sleep(300)
-            
-        except Exception as e:
-            print(f"حدث خطأ أثناء فحص البيانات: {e}")
-            time.sleep(60)
-
-if __name__ == '__main__':
-    run_bot()
