@@ -636,3 +636,38 @@ if st.sidebar.button("🔄 إعادة تعيين النموذج المحلي"):
     st.session_state['ai_engine'] = LocalAITradingEngine()
     st.sidebar.success("✅ تم إعادة تعيين النموذج")
     st.rerun()
+def run_bot():
+    """حلقة التشغيل المستمرة لتفحص السوق"""
+    print(f"بدء مراقبة السهم {SYMBOL}...")
+    
+    while True:
+        try:
+            df = get_historical_data(contract)
+            signal = check_signal(df)
+            
+            latest_price = df['close'].iloc[-1]
+            latest_rsi = round(df['RSI'].iloc[-1], 2)
+            
+            print(f"السعر الحالي: {latest_price} | RSI: {latest_rsi}")
+            
+            if signal == 'BUY':
+                # التأكد من عدم وجود أوامر معلقة بنفس السهم
+                open_orders = ib.openTrades()
+                has_pending_order = any(t.contract.symbol == SYMBOL for t in open_orders)
+                
+                if not has_pending_order:
+                    order = MarketOrder('BUY', FIXED_QUANTITY)
+                    trade = ib.placeOrder(contract, order)
+                    print(f"🚀 تم اكتشاف فرصة! تم إرسال أمر شراء {FIXED_QUANTITY} سهم في {SYMBOL}")
+                else:
+                    print("توجد صفقة أو أمر معلق بالفعل لنفس السهم.")
+            
+            # الانتظار 5 دقائق قبل الفحص التالي
+            time.sleep(300)
+            
+        except Exception as e:
+            print(f"حدث خطأ أثناء فحص البيانات: {e}")
+            time.sleep(60)
+
+if __name__ == '__main__':
+    run_bot()
