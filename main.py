@@ -294,15 +294,15 @@ def main():
         st.subheader("📊 البيانات الفنية")
         
         if st.button("جلب بيانات السوق"):
-    with st.spinner("جاري الاتصال بالسيرفر..."):
-        # تشغيل الدالة اللا متزامنة بأمان
-        df, error = asyncio.run(get_market_data(DEFAULT_SYMBOL, DEFAULT_HOST, DEFAULT_PORT))
-        
-        if error:
-            st.error(f"حدث خطأ: {error}")
-        else:
-            st.success("تم جلب البيانات وإضافة المؤشرات بنجاح!")
-            st.dataframe(df.tail(10))
+            with st.spinner("جاري الاتصال بالسيرفر..."):
+                # تشغيل الدالة اللا متزامنة بأمان
+                df, error = asyncio.run(get_market_data(symbol, ib_host, ib_port))
+                
+                if error:
+                    st.error(f"حدث خطأ: {error}")
+                else:
+                    st.session_state['df'] = df  # حفظ البيانات للاستخدام في باقي الكود
+                    st.success("تم جلب البيانات وإضافة المؤشرات بنجاح!")
                     
                     with st.spinner("تدريب النموذج..."):
                         if engine.train_quick_model(df):
@@ -437,6 +437,5 @@ def main():
 # ==========================================
 # التشغيل
 # ==========================================
-
 if __name__ == "__main__":
     main()
